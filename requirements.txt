@@ -1,0 +1,6 @@
+streamlit
+anthropic
+databricks-sql-connector
+psycopg[binary]
+python-dotenv
+databricks-sdk

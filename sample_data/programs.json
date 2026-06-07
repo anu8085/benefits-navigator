@@ -1,0 +1,148 @@
+{
+  "programs": [
+    {
+      "id": "snap",
+      "name": "NJ SNAP (Supplemental Nutrition Assistance Program)",
+      "category": "food",
+      "description": "Monthly food benefits loaded onto an EBT card to buy groceries.",
+      "eligibility_notes": "Based on household size and gross income (typically up to 130% of federal poverty level).",
+      "how_to_apply": "Apply online at njhelps.org or visit your county welfare office.",
+      "url": "https://www.njhelps.org",
+      "income_limit_pct_fpL": 130,
+      "accepts_undocumented": false,
+      "tags": ["food", "ebt", "grocery"]
+    },
+    {
+      "id": "wic",
+      "name": "WIC (Women, Infants & Children)",
+      "category": "food",
+      "description": "Nutrition program providing food, health referrals, and breastfeeding support for pregnant women, new mothers, and children under 5.",
+      "eligibility_notes": "Income up to 185% FPL. Must have a child under 5, be pregnant, or recently gave birth.",
+      "how_to_apply": "Contact your local WIC agency or call 1-800-328-3838.",
+      "url": "https://www.nj.gov/health/fhs/wic/",
+      "income_limit_pct_fpL": 185,
+      "accepts_undocumented": true,
+      "tags": ["food", "infant", "pregnancy", "nutrition"]
+    },
+    {
+      "id": "nj_familycare",
+      "name": "NJ FamilyCare (Medicaid)",
+      "category": "healthcare",
+      "description": "Free or low-cost health insurance for eligible NJ residents including children, pregnant women, and families.",
+      "eligibility_notes": "Children up to 350% FPL. Adults up to 138% FPL. Covers doctor visits, prescriptions, dental, and vision.",
+      "how_to_apply": "Apply at njhelps.org or call 1-800-701-0710.",
+      "url": "https://www.state.nj.us/humanservices/dmahs/clients/medicaid/",
+      "income_limit_pct_fpL": 350,
+      "accepts_undocumented": false,
+      "tags": ["health", "insurance", "children", "pregnant"]
+    },
+    {
+      "id": "chip",
+      "name": "NJ FamilyCare - CHIP (Children's Health Insurance)",
+      "category": "healthcare",
+      "description": "Low-cost health coverage specifically for children in families who earn too much for Medicaid but can't afford private insurance.",
+      "eligibility_notes": "Children up to age 19. Household income up to 350% FPL.",
+      "how_to_apply": "Apply at njhelps.org or through GetCoveredNJ.gov.",
+      "url": "https://getcovered.nj.gov",
+      "income_limit_pct_fpL": 350,
+      "accepts_undocumented": false,
+      "tags": ["health", "children", "insurance"]
+    },
+    {
+      "id": "ccdf",
+      "name": "NJ Child Care Assistance (CCDF / Child Care Subsidy)",
+      "category": "childcare",
+      "description": "Subsidizes childcare costs so parents can work or attend school. Covers licensed childcare centers and home daycares.",
+      "eligibility_notes": "Working families with children under 13. Income up to 200% FPL.",
+      "how_to_apply": "Apply through your county social services office or childcarenj.gov.",
+      "url": "https://www.childcarenj.gov",
+      "income_limit_pct_fpL": 200,
+      "accepts_undocumented": false,
+      "tags": ["childcare", "daycare", "working parents"]
+    },
+    {
+      "id": "preschool",
+      "name": "NJ Preschool Education Aid (PEA)",
+      "category": "childcare",
+      "description": "Free, high-quality preschool for 3- and 4-year-olds in eligible districts across New Jersey.",
+      "eligibility_notes": "Must reside in an Abbott or expanded preschool district. No income requirement.",
+      "how_to_apply": "Contact your local school district's main office.",
+      "url": "https://www.nj.gov/education/ece/",
+      "income_limit_pct_fpL": 999,
+      "accepts_undocumented": true,
+      "tags": ["preschool", "education", "childcare"]
+    },
+    {
+      "id": "ga",
+      "name": "NJ General Assistance (GA)",
+      "category": "cash",
+      "description": "Monthly cash assistance for single adults and childless couples who are not eligible for TANF.",
+      "eligibility_notes": "NJ resident, not receiving other cash assistance. Very limited income/assets.",
+      "how_to_apply": "Apply at your county board of social services.",
+      "url": "https://www.nj.gov/humanservices/dfd/programs/tanf/",
+      "income_limit_pct_fpL": 30,
+      "accepts_undocumented": false,
+      "tags": ["cash", "adults", "emergency"]
+    },
+    {
+      "id": "tanf",
+      "name": "NJ WorkFirst (TANF)",
+      "category": "cash",
+      "description": "Cash assistance and employment support for families with children. Includes job training and work supports.",
+      "eligibility_notes": "Families with children under 18. Very low income. Time-limited program.",
+      "how_to_apply": "Apply at njhelps.org or county welfare agency.",
+      "url": "https://www.nj.gov/humanservices/dfd/programs/tanf/",
+      "income_limit_pct_fpL": 50,
+      "accepts_undocumented": false,
+      "tags": ["cash", "family", "children", "employment"]
+    },
+    {
+      "id": "liheap",
+      "name": "Low Income Home Energy Assistance (LIHEAP)",
+      "category": "cash",
+      "description": "Helps eligible NJ households pay heating and cooling bills and may cover emergency energy needs.",
+      "eligibility_notes": "Income up to 60% of state median income. Apply during open enrollment periods.",
+      "how_to_apply": "Apply at njhelps.org or call your county social services.",
+      "url": "https://www.njhelps.org",
+      "income_limit_pct_fpL": 150,
+      "accepts_undocumented": false,
+      "tags": ["utility", "energy", "heating", "cash"]
+    },
+    {
+      "id": "211nj",
+      "name": "NJ 2-1-1 Helpline",
+      "category": "family",
+      "description": "Free, 24/7 information and referral service connecting NJ residents to local health and human services.",
+      "eligibility_notes": "Available to all NJ residents regardless of income or status.",
+      "how_to_apply": "Dial 2-1-1 or text your zip code to 898-211.",
+      "url": "https://www.nj211.org",
+      "income_limit_pct_fpL": 999,
+      "accepts_undocumented": true,
+      "tags": ["referral", "hotline", "family", "crisis"]
+    },
+    {
+      "id": "ece_home_visit",
+      "name": "Nurse-Family Partnership / Home Visiting Programs",
+      "category": "family",
+      "description": "Free home visits by trained nurses and social workers for first-time, low-income mothers from pregnancy through age 2.",
+      "eligibility_notes": "First-time mothers, low income, enrolled before 28 weeks of pregnancy.",
+      "how_to_apply": "Ask your OB or pediatrician for a referral, or contact your local health department.",
+      "url": "https://www.nj.gov/humanservices/dfd/programs/familysupport/",
+      "income_limit_pct_fpL": 185,
+      "accepts_undocumented": true,
+      "tags": ["family", "newborn", "pregnancy", "nurse"]
+    },
+    {
+      "id": "dv_services",
+      "name": "NJ Domestic Violence Services",
+      "category": "family",
+      "description": "Emergency shelter, legal assistance, counseling, and safety planning for survivors of domestic violence.",
+      "eligibility_notes": "Available to all survivors regardless of income, status, or gender.",
+      "how_to_apply": "Call the NJ Domestic Violence Hotline: 1-800-572-7233 (24/7).",
+      "url": "https://www.nj.gov/dcf/women/domestic/",
+      "income_limit_pct_fpL": 999,
+      "accepts_undocumented": true,
+      "tags": ["family", "safety", "shelter", "crisis"]
+    }
+  ]
+}

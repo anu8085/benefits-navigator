@@ -1,0 +1,20 @@
+command:
+  - streamlit
+  - run
+  - app.py
+
+env:
+  - name: STREAMLIT_GATHER_USAGE_STATS
+    value: "false"
+
+  - name: DATABRICKS_SERVER_HOSTNAME
+    value: "dbc-618d22b9-ae94.cloud.databricks.com"
+
+  - name: DATABRICKS_HTTP_PATH
+    value: "/sql/1.0/warehouses/d1ee87a13281e224"
+
+  - name: LAKEBASE_PORT
+    value: "5432"
+
+  - name: LAKEBASE_DATABASE
+    value: "databricks_postgres"
