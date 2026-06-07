@@ -18,3 +18,9 @@ env:
 
   - name: DATABRICKS_TOKEN
     valueFrom: databricks-token
+
+  - name: LAKEBASE_DATABASE
+    value: "databricks_postgres"
+
+  - name: LAKEBASE_PORT
+    value: "5432"
