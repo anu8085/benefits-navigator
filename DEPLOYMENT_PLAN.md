@@ -132,17 +132,77 @@ databricks secrets put-secret benefits-navigator anthropic-api-key
 ### b) Lakebase Postgres — app-state tables (WRITE)
 - **Module:** `lakebase_client.py` → `write_family_intake_event`,
   `write_program_matches`, `write_action_plan`, `write_user_feedback`.
-- **How:** uses `psycopg` (v3) with the five `LAKEBASE_*` variables.
+- **Driver:** `psycopg` (v3).
 - **Tables:** `family_intake_events`, `program_matches`, `action_plans`,
   `user_feedback` (keyed/correlated by `intake_id`).
 - **Role:** the **transactional app-state layer** — every user journey is
   recorded here so it can power `social_impact_analytics.sql`.
-- **⚠️ Auth note:** when running **locally**, Lakebase Postgres auth can fail
-  with **`External authorization failed`** (a static `LAKEBASE_PASSWORD` may be
-  expired/rotated, or your IP isn't allow-listed). For the **Databricks App
-  deployment**, prefer **Databricks-managed credentials** or **OAuth token
-  rotation** for Lakebase instead of a hard-coded password, so the app always
-  authenticates with a fresh, valid token. See §7 for the fallback behavior.
+
+`lakebase_client.py` supports **two authentication modes** and picks one
+automatically at runtime:
+
+#### Mode A — Local / manual (development)
+- **When:** chosen whenever `LAKEBASE_PASSWORD` is set.
+- **Uses:** `LAKEBASE_HOST`, `LAKEBASE_PORT`, `LAKEBASE_DATABASE`,
+  `LAKEBASE_USER`, `LAKEBASE_PASSWORD`.
+- **How:** connects directly with those static credentials. Simple, good for
+  running on your laptop.
+- **⚠️ Known issue:** a static password can fail with
+  **`External authorization failed`** if it has expired/rotated or your IP isn't
+  allow-listed. That's expected locally — use Mode B in production.
+
+#### Mode B — Databricks App / managed credentials (production)
+- **When:** chosen when there is **no** `LAKEBASE_PASSWORD` and the Databricks
+  App database resource is present as `LAKEBASE_RESOURCE`.
+- **Wiring (`app.yaml`):**
+  ```yaml
+  - name: LAKEBASE_RESOURCE
+    valueFrom: lakebase-db        # the attached Lakebase database resource
+  ```
+  Inside Databricks Apps, `valueFrom: lakebase-db` resolves to the Lakebase
+  database **instance name** (`databricks_postgres`, branch `production`).
+- **How:** the app authenticates as its **service principal** and uses the
+  Databricks SDK to (1) look up the instance host and (2) mint a **short-lived
+  OAuth token** used as the Postgres password. A fresh token is generated on
+  every connection, so credentials **rotate automatically** — no static
+  password is ever stored, which is what fixes `External authorization failed`.
+- **Optional overrides:** `LAKEBASE_DATABASE`, `LAKEBASE_PORT`, `LAKEBASE_HOST`,
+  and `LAKEBASE_USER` may still be set to override the auto-derived values; if
+  omitted, sensible defaults (`databricks_postgres` / `5432`) and the instance's
+  DNS / current identity are used.
+
+> Mode selection in one line: **`LAKEBASE_PASSWORD` set → Mode A; else
+> `LAKEBASE_RESOURCE` set → Mode B; else writes are skipped gracefully.**
+
+#### Service principal needs Lakebase / Postgres privileges
+In Mode B the OAuth token authenticates as the **Databricks App service
+principal**, so that principal must exist as a Postgres role in Lakebase **and**
+be granted privileges on the app-state tables — otherwise connections succeed
+but `INSERT`s are rejected.
+
+- **App service principal id:**
+  ```
+  DATABRICKS_CLIENT_ID=8455768b-1140-43a8-89b3-04ec91d565ad
+  ```
+- **One-time grant (run as a Lakebase Postgres admin):**
+  ```sql
+  -- Create a role for the App service principal (Databricks may auto-provision
+  -- this; create it explicitly if it does not already exist).
+  CREATE ROLE "8455768b-1140-43a8-89b3-04ec91d565ad" LOGIN;
+
+  -- Allow it to use the schema and write to the four app-state tables.
+  GRANT USAGE ON SCHEMA public TO "8455768b-1140-43a8-89b3-04ec91d565ad";
+  GRANT SELECT, INSERT ON
+      family_intake_events,
+      program_matches,
+      action_plans,
+      user_feedback
+  TO "8455768b-1140-43a8-89b3-04ec91d565ad";
+  ```
+- After granting, redeploy/restart the App and run one journey to confirm rows
+  land in the tables.
+
+See §7 for what happens if Lakebase auth still fails (the app degrades safely).
 
 ### c) Claude / Anthropic API — agent reasoning
 - **Module:** `agent.py` (`client = anthropic.Anthropic(api_key=...)`,
@@ -166,9 +226,17 @@ Catalog data (databricks_client.py) → action plan → written to Lakebase
 - [ ] Create the Lakebase Postgres tables (`family_intake_events`,
       `program_matches`, `action_plans`, `user_feedback`).
 - [ ] For Lakebase auth, prefer **Databricks-managed credentials / OAuth token
-      rotation** over a static `LAKEBASE_PASSWORD` (avoids the local
-      "External authorization failed" error in production).
-- [ ] Create a Databricks **secret scope** and add all 9 secrets.
+      rotation** (Mode B, `LAKEBASE_RESOURCE` → `valueFrom: lakebase-db`) over a
+      static `LAKEBASE_PASSWORD` (avoids the "External authorization failed"
+      error in production). See §4b.
+- [ ] Grant the App **service principal**
+      (`DATABRICKS_CLIENT_ID=8455768b-1140-43a8-89b3-04ec91d565ad`) Postgres
+      privileges (`USAGE` + `SELECT, INSERT`) on the four Lakebase app-state
+      tables — see the SQL grant in §4b.
+- [ ] Attach the **Lakebase database resource** (`lakebase-db`) to the App and
+      confirm `app.yaml` exposes it as `LAKEBASE_RESOURCE`.
+- [ ] Create a Databricks **secret scope** and add the remaining secrets
+      (`ANTHROPIC_API_KEY`, `DATABRICKS_TOKEN`).
 - [ ] Add an `app.yaml` at the project root (start command + env wiring).
 - [ ] Upload the project to the workspace (or connect a Git Repo).
 - [ ] Verify `requirements.txt` is present and complete.

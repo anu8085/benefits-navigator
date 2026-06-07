@@ -24,3 +24,11 @@ env:
 
   - name: LAKEBASE_PORT
     value: "5432"
+
+  # Databricks App Lakebase database resource (resource key: lakebase-db).
+  # Inside Databricks Apps this is injected so the app authenticates with
+  # Databricks-managed credentials (short-lived OAuth token) instead of a
+  # manually copied LAKEBASE_PASSWORD. Locally this var is simply absent and
+  # lakebase_client.py falls back to manual LAKEBASE_* credentials.
+  - name: LAKEBASE_RESOURCE
+    valueFrom: lakebase-db
