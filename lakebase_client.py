@@ -153,41 +153,52 @@ def _build_managed_workspace_client():
     return WorkspaceClient()
 
 
-def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
-    """Build psycopg connect kwargs using Databricks-managed credentials.
+def _classify_resource(resource: str) -> Dict[str, Optional[str]]:
+    """Classify the LAKEBASE_RESOURCE value and parse it if it is a path.
 
-    Inside a Databricks App, the App authenticates as its service principal. We
-    use the Databricks SDK to look up the Lakebase instance host and mint a
-    short-lived OAuth credential to use as the Postgres password. A new token is
-    generated on every call, so credentials rotate automatically. No password or
-    token is ever logged.
+    `valueFrom: lakebase-db` can resolve either to a simple Lakebase instance
+    NAME, or to a structured resource PATH of the form:
+        projects/<project>/branches/<branch>/endpoints/<endpoint>
 
-    Returns connect kwargs, or None if the SDK is unavailable or credential
-    resolution fails (only the exception type/message is logged).
+    The full path must NOT be passed to get_database_instance() - doing so makes
+    the SDK call a non-existent API and fail with NotFound. This helper returns:
+        {"shape": "name"|"path", "project": ..., "branch": ..., "endpoint": ...}
+    None of these values are secrets, so they are safe to log.
+    """
+    info: Dict[str, Optional[str]] = {
+        "shape": "name",
+        "project": None,
+        "branch": None,
+        "endpoint": None,
+    }
+    if resource.startswith("projects/"):
+        info["shape"] = "path"
+        parts = resource.split("/")
+        # Read the slash-separated key/value pairs (projects/<p>/branches/<b>/...).
+        kv: Dict[str, str] = {}
+        i = 0
+        while i + 1 < len(parts):
+            kv[parts[i]] = parts[i + 1]
+            i += 2
+        info["project"] = kv.get("projects")
+        info["branch"] = kv.get("branches")
+        info["endpoint"] = kv.get("endpoints")
+    return info
+
+
+def _managed_params_for_instance(w, instance_name: str) -> Optional[Dict[str, Any]]:
+    """Resolve connect kwargs for a Lakebase INSTANCE NAME via the SDK.
+
+    Looks up the instance host and mints a short-lived OAuth credential to use
+    as the Postgres password (rotates per call). Returns None (logging only the
+    exception type/message and the non-secret instance name) on any failure, so
+    the caller can fall back. No password/token is ever logged.
     """
     try:
-        import databricks.sdk  # noqa: F401 - presence check only
-    except ImportError:
-        logger.error(
-            "Lakebase managed mode requires the 'databricks-sdk' package "
-            "(pip install databricks-sdk)."
-        )
-        return None
-
-    try:
-        # Build the client with explicit OAuth (avoids the PAT/OAuth conflict).
-        w = _build_managed_workspace_client()
-
-        # Look up the database instance (host) for the attached resource.
-        instance = w.database.get_database_instance(name=resource)
-
-        # Mint a short-lived OAuth credential (rotates per connection).
+        instance = w.database.get_database_instance(name=instance_name)
         cred = w.database.generate_database_credential(
-            request_id=str(uuid.uuid4()), instance_names=[resource]
+            request_id=str(uuid.uuid4()), instance_names=[instance_name]
         )
-
-        # Host/user can be overridden via env, else derived from the instance /
-        # current identity. dbname/port fall back to the standard defaults.
         host = os.environ.get("LAKEBASE_HOST") or getattr(
             instance, "read_write_dns", None
         )
@@ -195,9 +206,9 @@ def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
 
         if not host:
             logger.error(
-                "Lakebase managed mode: could not resolve a host for resource "
-                "'%s' (no read_write_dns and no LAKEBASE_HOST override).",
-                resource,
+                "Lakebase managed mode: no host resolved for instance '%s' "
+                "(no read_write_dns and no LAKEBASE_HOST override).",
+                instance_name,
             )
             return None
 
@@ -210,13 +221,98 @@ def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
             "sslmode": "require",
         }
     except Exception as exc:  # noqa: BLE001 - degrade gracefully on any failure
-        # Log only the exception type/message; never credentials or a DSN.
         logger.error(
-            "Lakebase managed credential resolution failed: %s: %s",
+            "Lakebase managed instance lookup failed for '%s': %s: %s",
+            instance_name,
             type(exc).__name__,
             exc,
         )
         return None
+
+
+def _managed_fallback_to_manual(reason: str) -> Optional[Dict[str, Any]]:
+    """Safe fallback: try the manual LAKEBASE_* env vars instead.
+
+    Used when the managed SDK path cannot resolve the resource (e.g. the
+    resource is a project/branch/endpoint path with no clear SDK lookup). If the
+    manual vars are not all present, _resolve_manual_params() logs the missing
+    NAMES and returns None, so writes simply skip gracefully.
+    """
+    logger.info(
+        "Lakebase managed mode: %s; falling back to manual LAKEBASE_* "
+        "environment variables if present.",
+        reason,
+    )
+    return _resolve_manual_params()
+
+
+def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
+    """Build psycopg connect kwargs using Databricks-managed credentials.
+
+    Inside a Databricks App the App authenticates as its service principal. We
+    use the Databricks SDK to look up the Lakebase instance host and mint a
+    short-lived OAuth credential used as the Postgres password (rotates per
+    connection). No password or token is ever logged.
+
+    LAKEBASE_RESOURCE may be either a simple instance NAME or a structured
+    PATH (projects/<p>/branches/<b>/endpoints/<e>). For a path we parse the
+    parts and use the project as the instance name for the SDK lookup; if that
+    does not resolve, we fall back to manual LAKEBASE_* env vars.
+    """
+    try:
+        import databricks.sdk  # noqa: F401 - presence check only
+    except ImportError:
+        logger.error(
+            "Lakebase managed mode requires the 'databricks-sdk' package "
+            "(pip install databricks-sdk)."
+        )
+        return _managed_fallback_to_manual("databricks-sdk is not installed")
+
+    # Classify the resource value and log its shape safely (no secrets).
+    info = _classify_resource(resource)
+    if info["shape"] == "path":
+        logger.info(
+            "Lakebase managed mode: LAKEBASE_RESOURCE looks like a resource PATH "
+            "(project=%s, branch=%s, endpoint=%s), not a simple instance name.",
+            info["project"],
+            info["branch"],
+            info["endpoint"],
+        )
+        # Best-effort: query the SDK with the PROJECT as the instance name.
+        # We deliberately do NOT pass the full path to get_database_instance().
+        instance_name = info["project"]
+    else:
+        logger.info(
+            "Lakebase managed mode: LAKEBASE_RESOURCE looks like a simple "
+            "instance name."
+        )
+        instance_name = resource
+
+    if not instance_name:
+        return _managed_fallback_to_manual(
+            "could not derive an instance name from the resource path"
+        )
+
+    try:
+        # Build the client with explicit OAuth (avoids the PAT/OAuth conflict).
+        w = _build_managed_workspace_client()
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Lakebase managed mode: failed to initialize WorkspaceClient: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return _managed_fallback_to_manual("WorkspaceClient initialization failed")
+
+    params = _managed_params_for_instance(w, instance_name)
+    if params is not None:
+        return params
+
+    # SDK path did not resolve (e.g. project name is not the instance name, or
+    # this resource shape has no clear SDK API) - use the safe manual fallback.
+    return _managed_fallback_to_manual(
+        "managed SDK resolution was unavailable for this LAKEBASE_RESOURCE shape"
+    )
 
 
 def _resolve_connection_params() -> Optional[Dict[str, Any]]:
