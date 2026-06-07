@@ -3,4 +3,4 @@ anthropic
 databricks-sql-connector
 psycopg[binary]
 python-dotenv
-databricks-sdk
+databricks-sdk>=0.89.0
