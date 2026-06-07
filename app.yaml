@@ -13,8 +13,8 @@ env:
   - name: DATABRICKS_HTTP_PATH
     value: "/sql/1.0/warehouses/d1ee87a13281e224"
 
-  - name: LAKEBASE_PORT
-    value: "5432"
+  - name: ANTHROPIC_API_KEY
+    valueFrom: anthropic-api-key
 
-  - name: LAKEBASE_DATABASE
-    value: "databricks_postgres"
+  - name: DATABRICKS_TOKEN
+    valueFrom: databricks-token
