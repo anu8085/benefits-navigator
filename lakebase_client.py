@@ -100,6 +100,59 @@ def _resolve_manual_params() -> Optional[Dict[str, Any]]:
     }
 
 
+def _build_managed_workspace_client():
+    """Construct a WorkspaceClient for managed Lakebase mode.
+
+    A deployed Databricks App has BOTH a PAT (DATABRICKS_TOKEN, used by the SQL
+    connector for trusted-data reads) AND OAuth service-principal credentials
+    (DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET, injected by Databricks
+    Apps). If the SDK is allowed to auto-detect, it sees both and fails with:
+        "more than one authorization method configured: oauth and pat".
+
+    To avoid that, when OAuth credentials are available we initialize the client
+    EXPLICITLY with OAuth machine-to-machine auth and pin auth_type so the SDK
+    ignores DATABRICKS_TOKEN. The PAT remains available for the SQL connector
+    elsewhere - we simply don't use it here. No secret values are ever logged.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    client_id = os.environ.get("DATABRICKS_CLIENT_ID")
+    client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET")
+
+    # Prefer the explicit DATABRICKS_HOST; fall back to building it from the
+    # SQL-warehouse hostname if that is all that is set.
+    host = os.environ.get("DATABRICKS_HOST")
+    if not host and os.environ.get("DATABRICKS_SERVER_HOSTNAME"):
+        host = "https://" + os.environ["DATABRICKS_SERVER_HOSTNAME"]
+
+    if client_id and client_secret and host:
+        # Log only present/missing status - never the id/secret/host values.
+        logger.info(
+            "Lakebase managed mode: initializing WorkspaceClient with explicit "
+            "OAuth (oauth-m2m); ignoring DATABRICKS_TOKEN for this client."
+        )
+        oauth_kwargs = {
+            "host": host,
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        try:
+            # Pin the authenticator so PAT auto-detection is bypassed.
+            return WorkspaceClient(auth_type="oauth-m2m", **oauth_kwargs)
+        except TypeError:
+            # Older SDKs may not accept auth_type; passing OAuth creds explicitly
+            # still selects service-principal auth.
+            return WorkspaceClient(**oauth_kwargs)
+
+    # No explicit OAuth creds present (e.g. a non-App environment): fall back to
+    # the SDK's default credential detection.
+    logger.info(
+        "Lakebase managed mode: DATABRICKS_CLIENT_ID/SECRET/HOST not all "
+        "present; using default WorkspaceClient credential detection."
+    )
+    return WorkspaceClient()
+
+
 def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
     """Build psycopg connect kwargs using Databricks-managed credentials.
 
@@ -113,7 +166,7 @@ def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
     resolution fails (only the exception type/message is logged).
     """
     try:
-        from databricks.sdk import WorkspaceClient
+        import databricks.sdk  # noqa: F401 - presence check only
     except ImportError:
         logger.error(
             "Lakebase managed mode requires the 'databricks-sdk' package "
@@ -122,9 +175,8 @@ def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        # WorkspaceClient() auto-authenticates as the App's service principal
-        # when running inside a Databricks App.
-        w = WorkspaceClient()
+        # Build the client with explicit OAuth (avoids the PAT/OAuth conflict).
+        w = _build_managed_workspace_client()
 
         # Look up the database instance (host) for the attached resource.
         instance = w.database.get_database_instance(name=resource)
