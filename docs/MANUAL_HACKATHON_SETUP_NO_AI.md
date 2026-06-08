@@ -1,30 +1,49 @@
-# Manual Hackathon Setup (No AI) — Benefits Navigator for Families
+# Manual Rule-Safe Hackathon Setup Guide — No AI Assistance — Benefits Navigator for Families
 
-A complete, **self-contained** guide to rebuild and demo the Benefits Navigator
-app in a **new hackathon Databricks environment** using only your public GitHub
-repo, your laptop, and the Databricks / Lakebase UIs — **without** using Claude,
-ChatGPT, or any AI coding assistant during the event.
+A **self-contained**, rule-safe guide to **build and demo** the Benefits Navigator
+app **manually** in a new hackathon Databricks environment — using only your
+laptop and the Databricks / Lakebase UIs, **without** Claude, ChatGPT, or any AI
+coding assistant during the event.
 
 > **No real secrets in this document.** Everything sensitive is a `<PLACEHOLDER>`.
-> Never paste real API keys, tokens, or passwords into GitHub.
+> Never paste real API keys, tokens, passwords, or private hostnames into GitHub.
+>
+> **Not legal advice.** This reflects the *safest interpretation* of the official
+> rules. When uncertain, **confirm with the organizers.**
 
 ---
 
-## 1. Rule-Safe Setup Note (read first)
+## 0. When to Use This Guide
 
-- **Follow the official hackathon rules first.** They override anything here.
-- **If AI tools are not allowed during the event, do not use Claude/ChatGPT** (or
-  any AI assistant) for code generation while building.
-- **Use this guide only as allowed reference material** — it contains no
-  AI-generated code written during the event; it's a checklist you follow by hand.
-- **Use synthetic demo data only.** No real personal or family data.
-- **Do not use proprietary company code or private data.**
-- **Keep the repo public** if the rules require it.
-- **Keep commit history clean and transparent** — clear messages, honest
-  timestamps, no force-pushes that hide work.
+- **Use this guide if AI coding help is NOT permitted** by the official rules.
+- It can be used as a **checklist / reference only** if the rules allow referring
+  to your own notes/templates — **confirm with organizers** if unsure.
+- **Do not use Claude / ChatGPT during the Project Period if AI assistance is
+  prohibited.**
+- **Build the actual submission manually during the Project Period**
+  (**Mon, June 15, 2026 8:00 AM PT → Tue, June 16, 2026 2:30 PM PT**).
 
-When unsure about prebuilt code, AI assistance, or external APIs (e.g.,
-Anthropic), **ask the organizers and get it in writing.**
+---
+
+## 1. Official Rule Checklist (read first)
+
+These come from the official hackathon rules — plan your build around them:
+
+- [ ] **Start a new repo during the Project Period** (do not submit an old repo as-is).
+- [ ] Build a **Databricks App on Lakebase**.
+- [ ] Use **at least one additional Databricks tool** (Unity Catalog, Databricks SQL).
+- [ ] **Public** GitHub repo.
+- [ ] **Open-source license** in the repo.
+- [ ] **Demonstration video ≤ 3 minutes** (public).
+- [ ] **Synthetic data only** — no real personal information.
+- [ ] **No secrets** in GitHub.
+- [ ] **No proprietary / employer / confidential code or data.** Original work,
+      owned by your team, no third-party IP violations (open-source deps are fine
+      if their licenses are followed).
+- [ ] Repo history **shows the work was done during the Project Period**.
+
+When unsure about prebuilt code, AI assistance, or external APIs (e.g., Anthropic
+or OpenAI), **ask the organizers and get it in writing.**
 
 ---
 
@@ -64,26 +83,53 @@ qualify for, starting from a plain-language description. Components:
 
 ---
 
-## 4. Clone or Copy the Repo Manually
+## 4. Create a Brand-New Repo During the Project Period (default)
+
+> ⚠️ **"New Projects Only."** The rule-safe default is to **create a brand-new
+> public repo during the Project Period** and build manually in-window. **Do not
+> paste from your old repo** into the submission **unless organizers explicitly
+> allow reuse** (and even then, disclose it — see the warning below).
+
+At/after **June 15, 2026 8:00 AM PT**, create a new **public** repo:
 
 ```bash
-git clone <CURRENT_PUBLIC_REPO_URL>
-cd benefits-navigator
-git checkout main
-git pull
-```
-
-*(Optional)* push to a fresh hackathon repo:
-
-```bash
-git remote set-url origin <NEW_HACKATHON_REPO_URL>
+mkdir benefits-navigator-hackathon
+cd benefits-navigator-hackathon
+git init
+echo "# Benefits Navigator Hackathon" > README.md
+git add .
+git commit -m "Initial hackathon repo created during project period"
+git branch -M main
+git remote add origin <NEW_PUBLIC_REPO_URL>
 git push -u origin main
 ```
 
-> If the rules want a clean, in-window history, you can re-initialize git
-> (`rm -rf .git && git init && git add . && git commit -m "Initial import" &&
-> git branch -M main && git remote add origin <NEW_HACKATHON_REPO_URL> &&
-> git push -u origin main`). Keep it transparent.
+Add an **open-source license** (`LICENSE`, e.g., MIT or Apache-2.0).
+
+> ⚠️ **Do not paste from your old repo unless approved.** Your prior working repo
+> may be used only as **private practice/reference before the event**. Copying it
+> into the final submission is **not** assumed to be allowed. If organizers
+> confirm reuse is permitted, **disclose in your README** what existed before vs.
+> what was built during the Project Period, and still commit your meaningful work
+> in-window.
+
+### 4a. Manual rebuild checklist (build each file by hand)
+
+- [ ] Create the **blank repo** (above) + `LICENSE`.
+- [ ] Manually create the **project files**: `app.py`, `agent.py`,
+      `benefits_rules.py`, `databricks_client.py`, `lakebase_client.py`.
+- [ ] Manually create **`requirements.txt`** and **`app.yaml`** and `.gitignore`.
+- [ ] Manually create the **SQL files** (trusted table, Lakebase tables, grants,
+      analytics).
+- [ ] Manually create **`sample_data/programs.json`** (synthetic, 8 programs).
+- [ ] **Run local tests** (rules engine, JSON validity, app launch with fallback).
+- [ ] Manually create **Databricks tables, Lakebase tables, app resources, and
+      service-principal grants** via the UIs / SQL editors.
+- [ ] **Manually deploy and validate** the Databricks App.
+
+> The code blocks later in this guide are **allowed reference / template
+> material** to type or adapt **by hand**. If you are unsure whether using a
+> template counts as permitted, **confirm with the organizers** first.
 
 ---
 
@@ -553,47 +599,22 @@ WHERE rating IS NOT NULL;
 
 ---
 
-## 18. Final Judge Demo Script (~3 minutes)
+## 18. Official Submission Video (≤ 3 minutes)
 
-**1) Problem (~25s)**
-> "Millions of families miss out on benefits they qualify for — not because they
-> aren't eligible, but because the system is confusing, full of acronyms, and
-> hard to navigate. In New Jersey alone, a parent juggling work and kids doesn't
-> have time to decode a dozen programs."
+> The official rules require the demonstration video to be **no longer than 3
+> minutes** and **public**. Use this exact structure to stay under 3:00.
 
-**2) Solution (~25s)**
-> "Benefits Navigator lets a family describe their situation in one paragraph of
-> plain language. It understands them, asks a couple of smart follow-up
-> questions, and produces a personalized, explainable action plan for the
-> programs they likely qualify for."
+| Time | Segment | What to say / show |
+|---|---|---|
+| **0:00–0:20** | **Problem** | "Millions of families miss benefits they qualify for — the system is confusing and full of acronyms. A working parent doesn't have time to decode a dozen programs." |
+| **0:20–0:45** | **Solution / architecture** | "Benefits Navigator: a Databricks App on Lakebase. A family describes their situation in plain language; an agent + an explainable rules engine match them against governed NJ program data; a personalized plan is generated; and every journey is saved in Lakebase." |
+| **0:45–1:50** | **Live app demo** | Run the §13 scenario. Show the "trusted Databricks data" caption, the follow-up questions, the action plan, and the *reasons* on each match. |
+| **1:50–2:30** | **Lakebase state + analytics** | Run the §14 counts and a §15 analytics query — show journeys persisting and rolling up into community insight. |
+| **2:30–3:00** | **Impact closing** | "Agentic AI, grounded in governed trusted data, with durable Lakebase state and social-impact analytics — built to scale additively. Behind every number is a family that found help faster." |
 
-**3) Architecture (~35s)**
-> "Under the hood: a Streamlit app on Databricks Apps; a Claude agent that
-> extracts a structured profile and writes the plan; a deterministic rules engine
-> that gives a clear reason for every match; trusted, source-labeled NJ program
-> data in Unity Catalog read through a SQL Warehouse; and Lakebase Postgres for
-> live app state — all secrets managed by Databricks, none in GitHub."
-
-**4) Live app demo (~45s)**
-> *Paste the §13 scenario.* "Notice the 'trusted Databricks data' badge — these
-> are real, governed program records. It asks follow-ups… now here's the action
-> plan, and each match shows *why* it qualified."
-
-**5) Lakebase state (~20s)**
-> *Run the §14 counts.* "Every journey — intake, matches, plan, feedback — is
-> persisted transactionally in Lakebase, written securely as the app's service
-> principal."
-
-**6) Analytics (~20s)**
-> *Run the §15 program-demand and feedback-average queries.* "That turns
-> individual journeys into community insight: which programs are in demand and
-> how helpful families found the guidance."
-
-**7) Impact (~20s)**
-> "It's agentic AI, grounded in governed trusted data, with durable Lakebase
-> state and social-impact analytics. The architecture is built so scaling the
-> program catalog and adding privacy controls is additive — not a rewrite. Behind
-> every number here is a family that found help faster."
+> Optionally prepare a **60-second pitch** and a **5-minute backup** for live
+> Q&A/judging **if the organizers allow it** — but the **≤ 3-minute video is the
+> version that counts** for submission.
 
 ---
 

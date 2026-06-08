@@ -1,37 +1,46 @@
-# Claude-Assisted Hackathon Setup — Benefits Navigator for Families
+# Claude-Assisted Rule-Safe Hackathon Setup Guide — Benefits Navigator for Families
 
-A complete, end-to-end guide for rebuilding the **Benefits Navigator** app in a
-**new, empty hackathon Databricks environment**, starting only from your public
-GitHub repo and your existing laptop. Claude can help you at every step (code,
-SQL, commands, troubleshooting).
+A rule-safe, end-to-end guide for building the **Benefits Navigator** app for the
+**Databricks Apps & Agents Hackathon for Good 2026**. Claude can help you at every
+step (code, SQL, commands, troubleshooting) **only if AI assistance is permitted**.
 
 > **No real secrets in this document.** Everything sensitive is a `<PLACEHOLDER>`.
-> Never paste real API keys, tokens, or passwords into source control.
+> Never paste real API keys, tokens, passwords, or private hostnames into source
+> control.
+>
+> **This guide is not legal advice.** It reflects the *safest interpretation* of
+> the official rules. When uncertain, **confirm with the organizers.**
 
 ---
 
-## 0. Hackathon Rule Safety (read first)
+## 0. Official Rules Alignment — Read First
 
-Before anything technical, make sure your build is **eligible** under the
-official rules:
+These points come straight from the official hackathon rules and govern
+everything below:
 
-- **Use only permitted tools and resources** per the official hackathon rules
-  (allowed cloud accounts, APIs, datasets, and AI assistants).
-- **Do not submit private/proprietary company code.** Only use code you are
-  allowed to use publicly (e.g., your own public repo or an approved template).
-- **Do not use confidential or real personal data.** Benefits data is sensitive
-  by nature.
-- **Use synthetic / demo family scenarios only** (see §13). No real PII.
-- **If rules require code to be written during the hackathon window**, start from
-  an **allowed public repo/template** and make the **final, eligible changes
-  during the event** so your meaningful work happens in-window.
-- **Keep commit history transparent** — clear, honest commits with timestamps.
-- **Ask organizers if uncertain** about using prebuilt code, AI assistance, or
-  external APIs (e.g., Anthropic). Get it in writing if you can.
-- **Do not misrepresent** what was built *before* vs. *during* the event. Be
-  explicit in your README/submission about what pre-existed and what you added.
+- **New projects only — built during the Project Period.** The project must be
+  **created only during the Project Period**: **Mon, June 15, 2026 8:00 AM PT →
+  Tue, June 16, 2026 2:30 PM PT**. (Judging Period: Tue, June 16, 2026 2:30 PM PT
+  → 6:00 PM PT.)
+- **Your public GitHub repo must show the project was built during the Project
+  Period.** Commit your meaningful work **in-window**.
+- **Do not submit your old repo as-is.** Reusing/forking/copying a prior working
+  repo for the final submission is **not** assumed to be allowed — see §3.
+- **Required build:** a **Databricks App built on Lakebase** that uses **one or
+  more additional Databricks tools** (e.g., Unity Catalog, Databricks SQL).
+- **Use Claude (or any AI assistant) only if permitted.** If allowed, use it
+  **during the Project Period** and keep all work **transparent**.
+- **Use synthetic demo data only.** No real personal information.
+- **No employer / proprietary / confidential code or data.** The submission must
+  be the **team's original work**, owned by the team, not violating third-party
+  IP. Open-source dependencies are fine if you follow their licenses.
+- **No secrets in GitHub.** Keys/tokens/passwords live in Databricks
+  secrets/app resources, never in the repo.
+- **Open-source license required** in the public repo.
+- **Demonstration video must be ≤ 3 minutes** and public.
 
-When in doubt: **disclose and ask.** Transparency protects your submission.
+When in doubt: **disclose and ask the organizers.** Transparency protects your
+submission.
 
 ---
 
@@ -71,72 +80,70 @@ Repo files involved: `app.py`, `agent.py`, `benefits_rules.py`,
 
 ---
 
-## 3. GitHub Setup Options
+## 3. GitHub Setup — Create a Brand-New Repo During the Project Period
+
+> ⚠️ **The official rules require "New Projects Only."** Do **not** submit your
+> existing repo as-is. The **recommended, rule-safe** path is to create a
+> **brand-new public repo during the Project Period** and build in-window.
 
 Use placeholders:
-- `<OLD_REPO_URL>` — your current public repo (e.g., `https://github.com/<you>/benefits-navigator.git`)
-- `<NEW_HACKATHON_REPO_URL>` — the hackathon repo you will push to
+- `<NEW_PUBLIC_REPO_URL>` — the brand-new public repo you create during the event.
 
-### Option A — Fork the existing public repo
+### ✅ Recommended — Create a brand-new repo during the Project Period
 
-Fork `<OLD_REPO_URL>` in the GitHub UI, then:
-
-```bash
-git clone <NEW_HACKATHON_REPO_URL>
-cd benefits_navigator
-git remote -v
-# origin  <NEW_HACKATHON_REPO_URL> (fetch)
-# origin  <NEW_HACKATHON_REPO_URL> (push)
-```
-
-(Optional) keep a link back to the original to pull updates:
+At/after **June 15, 2026 8:00 AM PT**, create a new **public** repo and start
+committing:
 
 ```bash
-git remote add upstream <OLD_REPO_URL>
-git remote -v
-```
-
-### Option B — Create a new repo and copy code from your current repo
-
-Create an **empty** `<NEW_HACKATHON_REPO_URL>` in GitHub (no README), then:
-
-```bash
-# 1) Clone your current working repo
-git clone <OLD_REPO_URL>
-cd benefits_navigator
-
-# 2) Point origin at the new hackathon repo
-git remote -v
-git remote set-url origin <NEW_HACKATHON_REPO_URL>
-git remote -v
-
-# 3) Push everything to the new repo
-git push -u origin main
-```
-
-If you want a clean history that starts in-window (sometimes preferred for rule
-clarity), re-initialize:
-
-```bash
-rm -rf .git
+mkdir benefits-navigator-hackathon
+cd benefits-navigator-hackathon
 git init
+echo "# Benefits Navigator Hackathon" > README.md
 git add .
-git commit -m "Initial hackathon import from public template"
+git commit -m "Initial hackathon repo created during project period"
 git branch -M main
-git remote add origin <NEW_HACKATHON_REPO_URL>
+git remote add origin <NEW_PUBLIC_REPO_URL>
 git push -u origin main
 ```
 
-> **Rule-safety tie-in:** whichever option you choose, make your **substantive
-> changes during the event** and keep commits transparent (§0).
+Then build the project files **during the Project Period** (use the Claude
+prompts in §11 — each one builds from scratch, no prior-repo code). Add an
+**open-source license** (e.g., MIT or Apache-2.0) as a `LICENSE` file.
+
+> Your prior working repo (if any) may only be used as **private practice /
+> reference before the event**, never copied wholesale into the submission.
+
+### ⚠️ Only if organizers explicitly approve repo reuse
+
+Do **not** fork/copy a previous repo unless the organizers **confirm in writing**
+that it is allowed. If they do approve:
+
+- Fork/copy the existing **public** repo, then **clearly disclose** in your README
+  what existed **before** vs. what was built **during** the Project Period.
+- Still make your final, meaningful hackathon work visible through **commits
+  during the Project Period**.
+- Still ensure the final submission is **original, owned by your team, and
+  compliant** (open-source licenses respected, no proprietary/confidential code).
+
+### 3a. Commit evidence (prove in-window work)
+
+The repo must show the project was built **during** the Project Period:
+
+- [ ] **Commit early and often** during the Project Period (don't dump one giant
+      end-of-event commit).
+- [ ] Use **meaningful commit messages** that track real progress.
+- [ ] Keep the repo **public**.
+- [ ] Add an **open-source license** (`LICENSE`).
+- [ ] **Do not rewrite history** (no force-push/rebase that hides timestamps)
+      after submission.
 
 ---
 
 ## 4. Local Laptop Setup (same laptop, PowerShell)
 
 ```powershell
-# Into the repo
-cd benefits_navigator
+# Into the brand-new hackathon repo you created during the Project Period
+cd benefits-navigator-hackathon
 
 # Create and activate a virtual environment (Windows PowerShell)
 python -m venv .venv
@@ -484,7 +491,7 @@ land in the tables.
    ```
 2. **Create a Databricks App** in the new workspace (**Compute → Apps → Create**,
    or the Apps section).
-3. **Connect the GitHub repo** (link `<NEW_HACKATHON_REPO_URL>`).
+3. **Connect the GitHub repo** (link `<NEW_PUBLIC_REPO_URL>`).
 4. **Branch:** `main`.
 5. **Source path:** leave **blank** unless the app lives in a subfolder (this
    repo's `app.py` is at the root).
@@ -499,49 +506,57 @@ land in the tables.
 
 ## 11. Claude Prompts for Each Phase
 
-Copy-paste these into Claude as you go. (Adjust file names if yours differ.)
+> ⚠️ **Rule-safe prompting (only if AI assistance is permitted).** Every prompt
+> below is written to **build from scratch during the Project Period**. Each one
+> instructs Claude to: **create from scratch during the hackathon**, **do not
+> copy previous repo code**, **use placeholders for secrets**, and **use
+> synthetic demo data**. Keep your usage transparent.
 
-**Inspect repo**
+**Create the project skeleton (from scratch)**
 ```
-Inspect this repo and summarize each file's responsibility: app.py, agent.py,
-benefits_rules.py, databricks_client.py, lakebase_client.py, requirements.txt,
-app.yaml, sample_data/programs.json, social_impact_analytics.sql. Flag anything
-that reads environment variables or external services.
-```
-
-**Verify requirements.txt**
-```
-Check requirements.txt against the imports in this repo. Confirm streamlit,
-anthropic, databricks-sql-connector, psycopg[binary], python-dotenv, and
-databricks-sdk are present and version-compatible. Suggest minimal pins if a
-deployed environment might install incompatible versions.
+Create a Streamlit + Databricks + Lakebase project skeleton from scratch during
+the hackathon for an app called benefits-navigator-hackathon. Do not copy any
+previous repo code. Create app.py, agent.py, benefits_rules.py,
+databricks_client.py, lakebase_client.py, sample_data/programs.json,
+requirements.txt, app.yaml, .gitignore, README.md, and a LICENSE. Use placeholders
+for all secrets and use synthetic demo data only.
 ```
 
-**Update app.yaml for a new workspace**
+**Create requirements.txt (from scratch)**
 ```
-Update app.yaml for a new Databricks workspace. Inline only non-secret values
-(DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, LAKEBASE_DATABASE,
-LAKEBASE_PORT). Use valueFrom for ANTHROPIC_API_KEY, DATABRICKS_TOKEN, and the
-Lakebase resource. Do not put secrets in the file. Here are my non-secret values:
-host=<...>, http_path=<...>.
-```
-
-**Update databricks_client.py env names if needed**
-```
-Review databricks_client.py. Confirm it reads DATABRICKS_SERVER_HOSTNAME,
-DATABRICKS_HTTP_PATH, and DATABRICKS_TOKEN, queries
-benefits_navigator.trusted.benefit_programs, and falls back to local JSON on
-failure. If the new workspace uses different env names, adapt safely without
-breaking local fallback.
+Create requirements.txt from scratch for this app. Include streamlit, anthropic,
+databricks-sql-connector, databricks-sdk>=0.89.0, psycopg[binary], and
+python-dotenv. Do not copy from any previous repo. Use placeholders for secrets;
+use synthetic demo data only.
 ```
 
-**Update lakebase_client.py for new Lakebase variables**
+**Create app.yaml (from scratch)**
 ```
-Review lakebase_client.py. It supports manual mode (LAKEBASE_* incl.
-LAKEBASE_PASSWORD) and managed Databricks App mode (PG* env vars +
-LAKEBASE_RESOURCE + minted OAuth token). If the new Lakebase resource injects
-different variable names, adapt the managed path without breaking local/manual
-mode, and keep logs free of secrets.
+Create app.yaml from scratch for Databricks Apps. Use the Streamlit run command.
+Inline only non-secret values (DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH,
+LAKEBASE_DATABASE, LAKEBASE_PORT). Use valueFrom for ANTHROPIC_API_KEY,
+DATABRICKS_TOKEN, and the Lakebase resource. Do not put real secrets in the file
+— placeholders only. Do not copy any previous repo. Use synthetic demo data only.
+```
+
+**Create databricks_client.py (from scratch)**
+```
+Create databricks_client.py from scratch during the hackathon. It should read
+DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, and DATABRICKS_TOKEN, query
+benefits_navigator.trusted.benefit_programs, return a list of dicts, and fall
+back to local JSON on failure. Log safe errors only (no secrets). Do not copy any
+previous repo code. Use placeholders for secrets; use synthetic demo data only.
+```
+
+**Create lakebase_client.py (from scratch)**
+```
+Create lakebase_client.py from scratch during the hackathon. Support two modes:
+(A) local/manual using LAKEBASE_HOST/PORT/DATABASE/USER/PASSWORD, and (B)
+Databricks App managed mode using PG* env vars + the Lakebase resource +
+Databricks SDK OAuth (w.postgres.generate_database_credential(endpoint=...)).
+Expose write_intake_event, write_program_matches, write_action_plan,
+write_feedback. Never log secrets; degrade gracefully. Do not copy any previous
+repo code. Use placeholders for secrets; use synthetic demo data only.
 ```
 
 **Add safe diagnostic logging**
@@ -583,12 +598,36 @@ intakes, matches, plans, feedback; most common categories; most recommended
 programs; average rating; and recent end-to-end journeys.
 ```
 
-**Prepare final demo script**
+**Prepare demo scripts (3-min official video + 1-min pitch + 5-min backup)**
 ```
-Write a 60-second spoken demo script for judges that frames this as agentic AI +
-governed trusted Databricks data + Lakebase app state + social impact analytics,
-and a step-by-step click path for a 'single mom with two kids' scenario.
+Write three demo scripts that frame this as agentic AI + governed trusted
+Databricks data + Lakebase app state + social impact analytics, using the 'single
+mom with two kids' scenario: (1) a <=3 minute OFFICIAL submission video script
+(this is the version that counts), (2) a 60-second elevator pitch, and (3) a
+5-minute backup for live Q&A/judging only if allowed. Keep the official one to
+3 minutes maximum.
 ```
+
+---
+
+## 11a. Final Demo & Video (rule-aligned)
+
+Per the official rules, the **demonstration video must be ≤ 3 minutes** and
+public. Prepare three versions, but **the 3-minute video is the one that counts**:
+
+- **60-second pitch** — quick elevator framing.
+- **≤ 3-minute official video** — the submitted demo (record + upload publicly).
+- **5-minute backup** — only for live Q&A / judging **if the organizers allow it**.
+
+Suggested ≤3-minute structure:
+
+| Time | Segment |
+|---|---|
+| 0:00–0:20 | Problem |
+| 0:20–0:45 | Solution / architecture |
+| 0:45–1:50 | Live app demo (scenario A) |
+| 1:50–2:30 | Lakebase state + analytics |
+| 2:30–3:00 | Impact closing |
 
 ---
 
@@ -603,6 +642,15 @@ and a step-by-step click path for a 'single mom with two kids' scenario.
 - [ ] **Lakebase tables populate** (rows appear in all four tables).
 - [ ] **Summary analytics queries** (`social_impact_analytics.sql`) return data.
 - [ ] App **survives a redeploy** and previously written Lakebase data remains.
+
+**Submission readiness (official rules):**
+- [ ] Public, **open-source-licensed** GitHub repo created **during the Project Period**.
+- [ ] Commit history shows in-window work (early + frequent commits).
+- [ ] App is a **Databricks App on Lakebase** using **≥1 additional Databricks tool**.
+- [ ] Working **Databricks App URL** + testing instructions.
+- [ ] **Text description** of features/functionality.
+- [ ] **Public demonstration video ≤ 3 minutes.**
+- [ ] Submitted via the event's **Devpost**; **synthetic data only**; **no secrets** in the repo.
 
 ---
 
@@ -707,9 +755,11 @@ the architecture makes scaling **additive**, not a rewrite. Keep the demo tight
 (scenario A), show the trusted-data caption, the explainable matches, the plan,
 the feedback save, and one analytics query.
 
-> **Reminder:** Follow **§0 Hackathon Rule Safety** throughout — permitted tools
-> only, synthetic data only, transparent commits, and disclose AI assistance and
-> any pre-existing code. When unsure, **ask the organizers.**
+> **Reminder:** Follow **§0 Official Rules Alignment** throughout — new repo built
+> during the Project Period, public open-source repo, Databricks App on Lakebase
+> (+ ≥1 additional Databricks tool), permitted tools only, synthetic data only,
+> transparent in-window commits, **≤ 3-minute** public video, and disclose AI
+> assistance honestly. When unsure, **ask the organizers.**
 
 ---
 
