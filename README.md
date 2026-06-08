@@ -80,6 +80,22 @@ User Input (free text)
 
 ---
 
+## 📚 Hackathon Setup Guides
+
+Detailed documentation for understanding, rebuilding, and demoing this project in
+a Databricks environment:
+
+- [**Architecture Design**](docs/ARCHITECTURE_DESIGN.md) — judge-friendly system
+  architecture, component-by-component explanation, and a Lucidchart-style
+  Mermaid diagram.
+- [**Claude-Assisted Hackathon Setup**](docs/CLAUDE_ASSISTED_HACKATHON_SETUP.md) —
+  end-to-end setup guide with copy-paste Claude prompts for each phase.
+- [**Manual Hackathon Setup (No AI)**](docs/MANUAL_HACKATHON_SETUP_NO_AI.md) —
+  fully self-contained, step-by-step setup you can follow without any AI
+  assistance.
+
+---
+
 ## 🗂️ Benefit Categories Covered
 
 | Category | Programs |

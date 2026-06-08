@@ -1,0 +1,151 @@
+---
+title: Benefits Navigator for Families — Agentic Databricks + Lakebase Architecture
+---
+%% ============================================================================
+%% Benefits Navigator for Families
+%% Lucidchart-style system architecture (render with Mermaid)
+%% Documentation only — does not change application code.
+%% ============================================================================
+flowchart LR
+
+  TITLE["<b>Benefits Navigator for Families</b><br/>Agentic Databricks + Lakebase Architecture"]:::title
+
+  %% ---------------------------------------------------------------------------
+  %% USER EXPERIENCE LAYER
+  %% ---------------------------------------------------------------------------
+  subgraph UX["🧑‍👧 User Experience Layer"]
+    direction TB
+    U1["NJ family enters situation"]:::user
+    U2["Answers follow-up questions"]:::user
+    U3["Receives action plan"]:::user
+    A1["Friendly intake form"]:::app
+    A2["Program cards"]:::app
+    A3["Feedback widget"]:::app
+  end
+
+  %% ---------------------------------------------------------------------------
+  %% AGENTIC REASONING LAYER
+  %% ---------------------------------------------------------------------------
+  subgraph AGENTIC["🧠 Agentic Reasoning Layer"]
+    direction TB
+    C1["Extract structured profile"]:::agent
+    C2["Ask adaptive questions"]:::agent
+    C3["Generate action plan"]:::agent
+    R1["Deterministic eligibility screening"]:::rules
+    R2["Explainable reasons"]:::rules
+    R3["Income · child age · work/school · needs"]:::rules
+  end
+
+  %% ---------------------------------------------------------------------------
+  %% TRUSTED DATA LAYER
+  %% ---------------------------------------------------------------------------
+  subgraph TRUSTED["📚 Trusted Data Layer"]
+    direction TB
+    W1["SQL connector"]:::sqlw
+    W2["Secure read access"]:::sqlw
+    D1["benefits_navigator.trusted.benefit_programs"]:::trusted
+    D2["8 curated NJ programs"]:::trusted
+    D3["Source-labeled official data"]:::trusted
+    D4["Rule columns"]:::trusted
+  end
+
+  %% ---------------------------------------------------------------------------
+  %% APPLICATION STATE LAYER
+  %% ---------------------------------------------------------------------------
+  subgraph STATE["💾 Application State Layer"]
+    direction TB
+    L1["family_intake_events"]:::lake
+    L2["program_matches"]:::lake
+    L3["action_plans"]:::lake
+    L4["user_feedback"]:::lake
+    L5["Persistent transactional state"]:::lake
+  end
+
+  %% ---------------------------------------------------------------------------
+  %% ANALYTICS / IMPACT LAYER
+  %% ---------------------------------------------------------------------------
+  subgraph IMPACT["📊 Analytics / Impact Layer"]
+    direction TB
+    N1["County needs"]:::analytics
+    N2["Program demand"]:::analytics
+    N3["Feedback trends"]:::analytics
+    N4["Demo dashboards / SQL views"]:::analytics
+  end
+
+  %% ---------------------------------------------------------------------------
+  %% DEPLOYMENT & SECURITY LAYER
+  %% ---------------------------------------------------------------------------
+  subgraph DEPLOY["🚀 Deployment & Security Layer"]
+    direction TB
+    G1["Public repo"]:::deploy
+    G2["app.yaml"]:::deploy
+    G3["requirements.txt"]:::deploy
+    G4["Databricks App deploy from main"]:::deploy
+    S1["No secrets in GitHub"]:::sec
+    S2["Databricks App resources"]:::sec
+    S3["Secret-backed API keys"]:::sec
+    S4["Service principal grants"]:::sec
+    S5["Synthetic demo data"]:::sec
+  end
+
+  %% ---------------------------------------------------------------------------
+  %% PRIMARY DATA FLOW
+  %% ---------------------------------------------------------------------------
+  U1 -->|describe situation| A1
+  A1 -->|natural language| C1
+  C1 -->|needs more detail| C2
+  C2 -->|follow-up questions| U2
+  U2 -->|answers| A1
+  C1 -->|structured profile| R1
+  R1 -->|query eligibility| W1
+  W1 -->|secure read| W2
+  W2 -->|read Delta| D1
+  R1 -->|matches + reasons| R2
+  R2 -->|grounded matches| C3
+  C3 -->|plan + program cards| A2
+  A2 --> U3
+  A3 -->|writeback| L1
+  A3 -->|writeback| L4
+  L1 --> L5
+  L2 --> L5
+  L3 --> L5
+  L4 --> L5
+  L5 -->|aggregate| N1
+
+  %% ---------------------------------------------------------------------------
+  %% DEPLOYMENT & SECURITY FLOW (dashed = governance)
+  %% ---------------------------------------------------------------------------
+  G4 -->|deploy from main| A1
+  S2 -.->|app resource| A1
+  S3 -.->|secret-backed key| C1
+  S2 -.->|governed read| D1
+  S4 -.->|service principal grant| L5
+  S3 -.->|secure connection| W1
+
+  %% ---------------------------------------------------------------------------
+  %% LEGEND
+  %% ---------------------------------------------------------------------------
+  subgraph LEGEND["Legend"]
+    direction LR
+    LG1["User interaction"]:::user
+    LG2["Agent reasoning"]:::agent
+    LG3["Trusted data read"]:::trusted
+    LG4["Persistent state write"]:::lake
+    LG5["Analytics / reporting"]:::analytics
+    LG6["Security / governance"]:::sec
+  end
+
+  %% ---------------------------------------------------------------------------
+  %% STYLES (Lucidchart-style color zones)
+  %% ---------------------------------------------------------------------------
+  classDef title  fill:#FFFFFF,stroke:#FFFFFF,color:#1A3A5C,font-size:18px,font-weight:bold;
+  classDef user   fill:#E9DCF7,stroke:#8E6FBF,color:#2A1A40;
+  classDef app    fill:#D6E8FB,stroke:#2E86DE,color:#10314F;
+  classDef agent  fill:#FCE3C8,stroke:#E08A2B,color:#5A3410;
+  classDef rules  fill:#D9F2DE,stroke:#2E9E4F,color:#143D22;
+  classDef trusted fill:#FBF3C9,stroke:#C9A93B,color:#4A3D0B;
+  classDef sqlw   fill:#FAF7DC,stroke:#B7A53F,color:#4A3D0B;
+  classDef lake   fill:#FBD9DF,stroke:#D6536D,color:#5A1326;
+  classDef analytics fill:#CFF0EC,stroke:#2FA99B,color:#0E3F39;
+  classDef deploy fill:#E4E7EB,stroke:#8A94A6,color:#2A2F36;
+  classDef sec    fill:#ECEFF2,stroke:#66707D,color:#2A2F36;
