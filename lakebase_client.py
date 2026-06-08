@@ -46,9 +46,11 @@ and feedback back to a single intake event).
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import os
+import re
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -57,6 +59,49 @@ from typing import Any, Dict, List, Optional
 # installed in every environment.
 
 logger = logging.getLogger(__name__)
+
+
+# ── Safe logging helpers ──────────────────────────────────────────────────────
+def _safe_env_status(names: List[str]) -> Dict[str, str]:
+    """Return {name: 'present'|'missing'} for each env var - NEVER the value.
+
+    Use this to log which configuration is available without ever exposing the
+    underlying secret/identifier values.
+    """
+    return {n: ("present" if os.environ.get(n) else "missing") for n in names}
+
+
+def _mask_value(value: Optional[str]) -> str:
+    """Mask a NON-SECRET identifier for safe logging.
+
+    - None / empty -> "missing"
+    - short value   -> "***"
+    - longer value  -> first 6 chars + "..." + last 4 chars
+
+    Only use this for non-secret identifiers (e.g. a host). Passwords and tokens
+    are NEVER logged at all, not even masked.
+    """
+    if not value:
+        return "missing"
+    if len(value) <= 10:
+        return "***"
+    return value[:6] + "..." + value[-4:]
+
+
+# ── Startup diagnostics (safe: only availability, never values) ───────────────
+logger.info("lakebase_client.py loaded.")
+try:
+    if importlib.util.find_spec("psycopg") is not None:
+        logger.info("lakebase_client: psycopg driver is available.")
+    else:
+        logger.warning(
+            "lakebase_client: psycopg driver NOT found - Lakebase writes will be "
+            "skipped until 'psycopg[binary]' is installed."
+        )
+except Exception as exc:  # noqa: BLE001 - never fail at import time
+    logger.warning(
+        "lakebase_client: could not probe for psycopg (%s).", type(exc).__name__
+    )
 
 # Env vars that make up the manual (local) credential set.
 _MANUAL_ENV_VARS = (
@@ -116,6 +161,19 @@ def _build_managed_workspace_client():
     """
     from databricks.sdk import WorkspaceClient
 
+    # Log only present/missing status for the OAuth inputs - never the values.
+    logger.info(
+        "Lakebase managed OAuth env status: %s",
+        _safe_env_status(
+            [
+                "DATABRICKS_HOST",
+                "DATABRICKS_CLIENT_ID",
+                "DATABRICKS_CLIENT_SECRET",
+                "DATABRICKS_TOKEN",
+            ]
+        ),
+    )
+
     client_id = os.environ.get("DATABRICKS_CLIENT_ID")
     client_secret = os.environ.get("DATABRICKS_CLIENT_SECRET")
 
@@ -126,6 +184,11 @@ def _build_managed_workspace_client():
         host = "https://" + os.environ["DATABRICKS_SERVER_HOSTNAME"]
 
     if client_id and client_secret and host:
+        if os.environ.get("DATABRICKS_TOKEN"):
+            logger.info(
+                "Lakebase managed mode: DATABRICKS_TOKEN is present but will be "
+                "IGNORED for Lakebase auth (using explicit OAuth M2M instead)."
+            )
         # Log only present/missing status - never the id/secret/host values.
         logger.info(
             "Lakebase managed mode: initializing WorkspaceClient with explicit "
@@ -153,88 +216,27 @@ def _build_managed_workspace_client():
     return WorkspaceClient()
 
 
-def _classify_resource(resource: str) -> Dict[str, Optional[str]]:
-    """Classify the LAKEBASE_RESOURCE value and parse it if it is a path.
+# A LAKEBASE_RESOURCE that looks like a Lakebase Autoscaling endpoint path:
+#   projects/<project>/branches/<branch>/endpoints/<endpoint>
+_ENDPOINT_PATH_RE = re.compile(
+    r"^projects/[^/]+/branches/[^/]+/endpoints/[^/]+$"
+)
 
-    `valueFrom: lakebase-db` can resolve either to a simple Lakebase instance
-    NAME, or to a structured resource PATH of the form:
-        projects/<project>/branches/<branch>/endpoints/<endpoint>
-
-    The full path must NOT be passed to get_database_instance() - doing so makes
-    the SDK call a non-existent API and fail with NotFound. This helper returns:
-        {"shape": "name"|"path", "project": ..., "branch": ..., "endpoint": ...}
-    None of these values are secrets, so they are safe to log.
-    """
-    info: Dict[str, Optional[str]] = {
-        "shape": "name",
-        "project": None,
-        "branch": None,
-        "endpoint": None,
-    }
-    if resource.startswith("projects/"):
-        info["shape"] = "path"
-        parts = resource.split("/")
-        # Read the slash-separated key/value pairs (projects/<p>/branches/<b>/...).
-        kv: Dict[str, str] = {}
-        i = 0
-        while i + 1 < len(parts):
-            kv[parts[i]] = parts[i + 1]
-            i += 2
-        info["project"] = kv.get("projects")
-        info["branch"] = kv.get("branches")
-        info["endpoint"] = kv.get("endpoints")
-    return info
+# PG* connection env vars that Databricks Apps inject for an attached Lakebase
+# (Autoscaling) database resource. The token/password is NOT among them - it is
+# minted at runtime via OAuth (see _generate_managed_token).
+_PG_REQUIRED_VARS = ("PGHOST", "PGUSER", "PGDATABASE")
 
 
-def _managed_params_for_instance(w, instance_name: str) -> Optional[Dict[str, Any]]:
-    """Resolve connect kwargs for a Lakebase INSTANCE NAME via the SDK.
-
-    Looks up the instance host and mints a short-lived OAuth credential to use
-    as the Postgres password (rotates per call). Returns None (logging only the
-    exception type/message and the non-secret instance name) on any failure, so
-    the caller can fall back. No password/token is ever logged.
-    """
-    try:
-        instance = w.database.get_database_instance(name=instance_name)
-        cred = w.database.generate_database_credential(
-            request_id=str(uuid.uuid4()), instance_names=[instance_name]
-        )
-        host = os.environ.get("LAKEBASE_HOST") or getattr(
-            instance, "read_write_dns", None
-        )
-        user = os.environ.get("LAKEBASE_USER") or w.current_user.me().user_name
-
-        if not host:
-            logger.error(
-                "Lakebase managed mode: no host resolved for instance '%s' "
-                "(no read_write_dns and no LAKEBASE_HOST override).",
-                instance_name,
-            )
-            return None
-
-        return {
-            "host": host,
-            "port": os.environ.get("LAKEBASE_PORT", _DEFAULT_DB_PORT),
-            "dbname": os.environ.get("LAKEBASE_DATABASE", _DEFAULT_DB_NAME),
-            "user": user,
-            "password": cred.token,  # short-lived OAuth token - never logged
-            "sslmode": "require",
-        }
-    except Exception as exc:  # noqa: BLE001 - degrade gracefully on any failure
-        logger.error(
-            "Lakebase managed instance lookup failed for '%s': %s: %s",
-            instance_name,
-            type(exc).__name__,
-            exc,
-        )
-        return None
+def _looks_like_endpoint_path(resource: Optional[str]) -> bool:
+    """True if `resource` is a projects/.../branches/.../endpoints/... path."""
+    return bool(resource and _ENDPOINT_PATH_RE.match(resource))
 
 
 def _managed_fallback_to_manual(reason: str) -> Optional[Dict[str, Any]]:
     """Safe fallback: try the manual LAKEBASE_* env vars instead.
 
-    Used when the managed SDK path cannot resolve the resource (e.g. the
-    resource is a project/branch/endpoint path with no clear SDK lookup). If the
+    Used when the managed Databricks App path cannot resolve credentials. If the
     manual vars are not all present, _resolve_manual_params() logs the missing
     NAMES and returns None, so writes simply skip gracefully.
     """
@@ -246,73 +248,132 @@ def _managed_fallback_to_manual(reason: str) -> Optional[Dict[str, Any]]:
     return _resolve_manual_params()
 
 
-def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
-    """Build psycopg connect kwargs using Databricks-managed credentials.
+def _generate_managed_token(endpoint_name: Optional[str]) -> Optional[str]:
+    """Mint a short-lived Lakebase OAuth credential (used as the PG password).
 
-    Inside a Databricks App the App authenticates as its service principal. We
-    use the Databricks SDK to look up the Lakebase instance host and mint a
-    short-lived OAuth credential used as the Postgres password (rotates per
-    connection). No password or token is ever logged.
-
-    LAKEBASE_RESOURCE may be either a simple instance NAME or a structured
-    PATH (projects/<p>/branches/<b>/endpoints/<e>). For a path we parse the
-    parts and use the project as the instance name for the SDK lookup; if that
-    does not resolve, we fall back to manual LAKEBASE_* env vars.
+    Builds a WorkspaceClient with EXPLICIT OAuth (so it ignores DATABRICKS_TOKEN)
+    and calls `w.postgres.generate_database_credential(endpoint=...)`. A fresh
+    token is minted per call, so credentials rotate automatically. Returns the
+    token string, or None on any failure (only the exception type/message is
+    logged - never the token itself).
     """
     try:
         import databricks.sdk  # noqa: F401 - presence check only
+
+        logger.info("Lakebase managed mode: databricks-sdk import succeeded.")
     except ImportError:
         logger.error(
-            "Lakebase managed mode requires the 'databricks-sdk' package "
-            "(pip install databricks-sdk)."
+            "Lakebase managed mode: databricks-sdk import FAILED - install the "
+            "'databricks-sdk' package (pip install databricks-sdk)."
         )
-        return _managed_fallback_to_manual("databricks-sdk is not installed")
-
-    # Classify the resource value and log its shape safely (no secrets).
-    info = _classify_resource(resource)
-    if info["shape"] == "path":
-        logger.info(
-            "Lakebase managed mode: LAKEBASE_RESOURCE looks like a resource PATH "
-            "(project=%s, branch=%s, endpoint=%s), not a simple instance name.",
-            info["project"],
-            info["branch"],
-            info["endpoint"],
-        )
-        # Best-effort: query the SDK with the PROJECT as the instance name.
-        # We deliberately do NOT pass the full path to get_database_instance().
-        instance_name = info["project"]
-    else:
-        logger.info(
-            "Lakebase managed mode: LAKEBASE_RESOURCE looks like a simple "
-            "instance name."
-        )
-        instance_name = resource
-
-    if not instance_name:
-        return _managed_fallback_to_manual(
-            "could not derive an instance name from the resource path"
-        )
+        return None
 
     try:
-        # Build the client with explicit OAuth (avoids the PAT/OAuth conflict).
+        # Explicit OAuth avoids the PAT/OAuth "more than one authorization
+        # method configured" conflict in a deployed App.
         w = _build_managed_workspace_client()
-    except Exception as exc:  # noqa: BLE001
+
+        # Generate the credential. Prefer passing the endpoint name when we have
+        # one; some SDK versions can infer it from the App resource if omitted.
+        logger.info(
+            "Lakebase managed mode: calling generate_database_credential() "
+            "(endpoint=%s).",
+            "provided" if endpoint_name else "inferred",
+        )
+        if endpoint_name:
+            cred = w.postgres.generate_database_credential(endpoint=endpoint_name)
+        else:
+            cred = w.postgres.generate_database_credential()
+
+        token = getattr(cred, "token", None)
+        if not token:
+            logger.error(
+                "Lakebase managed mode: credential response contained no token."
+            )
+            return None
+        logger.info(
+            "Lakebase managed mode: credential generation succeeded "
+            "(token received; value not logged)."
+        )
+        return token
+    except Exception as exc:  # noqa: BLE001 - degrade gracefully on any failure
+        # Log only the exception type/message; never the token.
         logger.error(
-            "Lakebase managed mode: failed to initialize WorkspaceClient: %s: %s",
+            "Lakebase managed credential generation failed: %s: %s",
             type(exc).__name__,
             exc,
         )
-        return _managed_fallback_to_manual("WorkspaceClient initialization failed")
+        return None
 
-    params = _managed_params_for_instance(w, instance_name)
-    if params is not None:
-        return params
 
-    # SDK path did not resolve (e.g. project name is not the instance name, or
-    # this resource shape has no clear SDK API) - use the safe manual fallback.
-    return _managed_fallback_to_manual(
-        "managed SDK resolution was unavailable for this LAKEBASE_RESOURCE shape"
+def _resolve_managed_params(resource: str) -> Optional[Dict[str, Any]]:
+    """Build psycopg connect kwargs for Databricks Apps Lakebase Autoscaling.
+
+    For an attached Lakebase (Autoscaling) database resource, Databricks Apps
+    inject the Postgres connection target as PG* environment variables:
+        PGHOST, PGDATABASE, PGUSER, PGPORT, PGSSLMODE
+    We use those for the connection and mint the password (a short-lived OAuth
+    token) at runtime via `w.postgres.generate_database_credential(...)`. We do
+    NOT call `w.database.get_database_instance()` here.
+
+    LAKEBASE_RESOURCE is used only as the ENDPOINT name, and only when it looks
+    like `projects/<p>/branches/<b>/endpoints/<e>`. If the PG* vars are missing
+    or the token cannot be minted, we fall back to manual LAKEBASE_* vars.
+    """
+    # 1) The PG* connection target must be present (injected by the App).
+    logger.info(
+        "Lakebase managed mode: PG* env status: %s",
+        _safe_env_status(["PGHOST", "PGUSER", "PGDATABASE", "PGPORT", "PGSSLMODE"]),
     )
+    missing_pg = [name for name in _PG_REQUIRED_VARS if not os.environ.get(name)]
+    if missing_pg:
+        logger.warning(
+            "Lakebase managed mode: missing required PG* env var(s): %s",
+            ", ".join(missing_pg),
+        )
+        return _managed_fallback_to_manual(
+            "PG* connection env var(s) not present: " + ", ".join(missing_pg)
+        )
+
+    # 2) Determine the endpoint name from LAKEBASE_RESOURCE (path shape only).
+    if _looks_like_endpoint_path(resource):
+        endpoint_name: Optional[str] = resource
+        # The project/branch/endpoint names are NOT secrets - safe to log.
+        parts = resource.split("/")
+        logger.info(
+            "Lakebase managed mode: endpoint path detected: yes "
+            "(project=%s, branch=%s, endpoint=%s).",
+            parts[1],
+            parts[3],
+            parts[5],
+        )
+    else:
+        endpoint_name = None
+        logger.info(
+            "Lakebase managed mode: endpoint path detected: no; letting the SDK "
+            "infer the endpoint from the App resource."
+        )
+
+    # 3) Mint the short-lived OAuth token used as the Postgres password.
+    token = _generate_managed_token(endpoint_name)
+    if not token:
+        return _managed_fallback_to_manual(
+            "could not mint a Lakebase OAuth credential"
+        )
+
+    # 4) Assemble connect kwargs from the injected PG* vars (token = password).
+    logger.info(
+        "Lakebase managed mode: connecting using injected PG* env vars "
+        "(PGHOST/PGUSER/PGDATABASE present) with a minted OAuth token."
+    )
+    return {
+        "host": os.environ["PGHOST"],
+        "port": os.environ.get("PGPORT") or _DEFAULT_DB_PORT,
+        "dbname": os.environ["PGDATABASE"],
+        "user": os.environ["PGUSER"],
+        "password": token,  # short-lived OAuth token - never logged
+        "sslmode": os.environ.get("PGSSLMODE") or "require",
+    }
 
 
 def _resolve_connection_params() -> Optional[Dict[str, Any]]:
@@ -324,20 +385,38 @@ def _resolve_connection_params() -> Optional[Dict[str, Any]]:
         is present.
     Returns None (with a clear log) when neither is configured.
     """
+    # Log what configuration is present (names/status only, never values).
+    logger.info(
+        "Lakebase mode selection: %s",
+        _safe_env_status(
+            [
+                "LAKEBASE_PASSWORD",
+                "LAKEBASE_RESOURCE",
+                "PGHOST",
+                "PGUSER",
+                "PGDATABASE",
+                "PGPORT",
+                "PGSSLMODE",
+            ]
+        ),
+    )
+
     # Manual mode wins when an explicit password is supplied - this preserves
     # local/dev behavior exactly.
     if os.environ.get("LAKEBASE_PASSWORD"):
-        logger.info("Lakebase: using manual credential mode.")
+        logger.info("Lakebase: selected MODE A (local/manual credentials).")
         return _resolve_manual_params()
 
     # Databricks App managed-credential mode.
     resource = os.environ.get(_RESOURCE_ENV_VAR)
     if resource:
-        logger.info("Lakebase: using Databricks App managed-credential mode.")
+        logger.info(
+            "Lakebase: selected MODE B (Databricks App managed PG* mode)."
+        )
         return _resolve_managed_params(resource)
 
-    logger.error(
-        "Cannot connect to Lakebase: no credentials configured. Set "
+    logger.warning(
+        "Lakebase: selected MODE C (unconfigured) - writes will be skipped. Set "
         "LAKEBASE_PASSWORD (+ LAKEBASE_HOST/PORT/DATABASE/USER) for manual mode, "
         "or attach a Databricks App database resource exposed as %s.",
         _RESOURCE_ENV_VAR,
@@ -356,7 +435,23 @@ def _connect():
     """
     params = _resolve_connection_params()
     if params is None:
+        logger.warning(
+            "Lakebase: no connection parameters resolved; skipping connection."
+        )
         return None
+
+    # Sanitized view of the connection target. dbname/port/sslmode are not
+    # sensitive; host is masked; user is shown as present/missing; the password
+    # (token) is never referenced here.
+    logger.info(
+        "Lakebase connection params (sanitized): dbname=%s, user=%s, host=%s, "
+        "port=%s, sslmode=%s",
+        params.get("dbname"),
+        "present" if params.get("user") else "missing",
+        _mask_value(params.get("host")),
+        params.get("port"),
+        params.get("sslmode"),
+    )
 
     try:
         import psycopg  # lazy import - driver only needed when actually writing
@@ -368,12 +463,15 @@ def _connect():
         return None
 
     try:
-        return psycopg.connect(**params)
+        logger.info("Lakebase: calling psycopg.connect() ...")
+        conn = psycopg.connect(**params)
+        logger.info("Lakebase: psycopg.connect() succeeded; connection established.")
+        return conn
     except Exception as exc:  # noqa: BLE001 - degrade gracefully on any failure
         # Log only the exception type/message; params (incl. password) are never
         # logged.
         logger.error(
-            "Failed to connect to Lakebase Postgres: %s: %s",
+            "Lakebase: psycopg.connect() failed: %s: %s",
             type(exc).__name__,
             exc,
         )
@@ -396,11 +494,13 @@ def write_family_intake_event(
         The generated intake_id (UUID string) on success, or None if the write
         failed for any reason.
     """
+    logger.info("write_intake_event: started (intake_id generated: yes).")
     intake_id = str(uuid.uuid4())
 
     # Parameterized INSERT - values are bound by the driver, never concatenated.
     # profile is stored as JSON; the %s::jsonb cast lets Postgres store it in a
-    # jsonb column.
+    # jsonb column. NOTE: raw_user_text and profile are sensitive and are NEVER
+    # logged - only the generated intake_id (a UUID) is.
     sql = """
         INSERT INTO family_intake_events (intake_id, raw_user_text, profile)
         VALUES (%s, %s, %s::jsonb)
@@ -409,22 +509,35 @@ def write_family_intake_event(
 
     conn = _connect()
     if conn is None:
+        logger.warning(
+            "write_intake_event: no Lakebase connection; skipping write "
+            "(intake_id=%s).",
+            intake_id,
+        )
         return None
     try:
         with conn:
             with conn.cursor() as cur:
+                logger.info(
+                    "write_intake_event: SQL execute started (intake_id=%s).",
+                    intake_id,
+                )
                 cur.execute(sql, params)
-        logger.info("Wrote family intake event %s to Lakebase.", intake_id)
+                logger.info("write_intake_event: SQL execute completed.")
+        logger.info(
+            "write_intake_event: commit completed; wrote intake_id=%s.", intake_id
+        )
         return intake_id
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "Failed to write family intake event to Lakebase: %s: %s",
+            "write_intake_event: failed: %s: %s",
             type(exc).__name__,
             exc,
         )
         return None
     finally:
         conn.close()
+        logger.info("write_intake_event: connection closed.")
 
 
 def write_program_matches(intake_id: str, matches: List[Dict[str, Any]]) -> bool:
@@ -438,12 +551,19 @@ def write_program_matches(intake_id: str, matches: List[Dict[str, Any]]) -> bool
         True if the matches were written (or there were none to write), False if
         the write failed.
     """
+    logger.info(
+        "write_program_matches: started (intake_id present: %s, matches to write: %d).",
+        "yes" if intake_id else "no",
+        len(matches) if matches else 0,
+    )
     if not matches:
         # Nothing to persist is not an error.
+        logger.info("write_program_matches: 0 matches; nothing to write.")
         return True
 
     # Build one parameter tuple per match, each with its own UUID. match_reasons
     # is stored as JSON. All values are bound parameters - no string building.
+    # NOTE: match content itself is not logged - only the count.
     sql = """
         INSERT INTO program_matches
             (match_id, intake_id, program_id, program_name, category, match_reasons)
@@ -463,26 +583,40 @@ def write_program_matches(intake_id: str, matches: List[Dict[str, Any]]) -> bool
 
     conn = _connect()
     if conn is None:
+        logger.warning(
+            "write_program_matches: no Lakebase connection; skipping write "
+            "(intake_id=%s).",
+            intake_id,
+        )
         return False
     try:
         with conn:
             with conn.cursor() as cur:
+                logger.info(
+                    "write_program_matches: SQL execute started (%d row(s), "
+                    "intake_id=%s).",
+                    len(rows),
+                    intake_id,
+                )
                 cur.executemany(sql, rows)
+                logger.info("write_program_matches: SQL execute completed.")
         logger.info(
-            "Wrote %d program match(es) for intake %s to Lakebase.",
+            "write_program_matches: commit completed; wrote %d match(es) for "
+            "intake_id=%s.",
             len(rows),
             intake_id,
         )
         return True
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "Failed to write program matches to Lakebase: %s: %s",
+            "write_program_matches: failed: %s: %s",
             type(exc).__name__,
             exc,
         )
         return False
     finally:
         conn.close()
+        logger.info("write_program_matches: connection closed.")
 
 
 def write_action_plan(
@@ -498,8 +632,13 @@ def write_action_plan(
     Returns:
         The generated plan_id (UUID string) on success, or None on failure.
     """
+    logger.info(
+        "write_action_plan: started (intake_id present: %s).",
+        "yes" if intake_id else "no",
+    )
     plan_id = str(uuid.uuid4())
 
+    # NOTE: action_plan_text is not logged (may contain sensitive context).
     sql = """
         INSERT INTO action_plans
             (plan_id, intake_id, action_plan_text, generated_by_model)
@@ -509,22 +648,40 @@ def write_action_plan(
 
     conn = _connect()
     if conn is None:
+        logger.warning(
+            "write_action_plan: no Lakebase connection; skipping write "
+            "(intake_id=%s).",
+            intake_id,
+        )
         return None
     try:
         with conn:
             with conn.cursor() as cur:
+                logger.info(
+                    "write_action_plan: SQL execute started (plan_id=%s, "
+                    "intake_id=%s).",
+                    plan_id,
+                    intake_id,
+                )
                 cur.execute(sql, params)
-        logger.info("Wrote action plan %s for intake %s to Lakebase.", plan_id, intake_id)
+                logger.info("write_action_plan: SQL execute completed.")
+        logger.info(
+            "write_action_plan: commit completed; wrote plan_id=%s for "
+            "intake_id=%s.",
+            plan_id,
+            intake_id,
+        )
         return plan_id
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "Failed to write action plan to Lakebase: %s: %s",
+            "write_action_plan: failed: %s: %s",
             type(exc).__name__,
             exc,
         )
         return None
     finally:
         conn.close()
+        logger.info("write_action_plan: connection closed.")
 
 
 def write_user_feedback(
@@ -540,8 +697,13 @@ def write_user_feedback(
     Returns:
         The generated feedback_id (UUID string) on success, or None on failure.
     """
+    logger.info(
+        "write_feedback: started (intake_id present: %s).",
+        "yes" if intake_id else "no",
+    )
     feedback_id = str(uuid.uuid4())
 
+    # NOTE: feedback_text is not logged (free-text user content).
     sql = """
         INSERT INTO user_feedback
             (feedback_id, intake_id, rating, feedback_text)
@@ -551,23 +713,37 @@ def write_user_feedback(
 
     conn = _connect()
     if conn is None:
+        logger.warning(
+            "write_feedback: no Lakebase connection; skipping write "
+            "(intake_id=%s).",
+            intake_id,
+        )
         return None
     try:
         with conn:
             with conn.cursor() as cur:
+                logger.info(
+                    "write_feedback: SQL execute started (feedback_id=%s, "
+                    "intake_id=%s).",
+                    feedback_id,
+                    intake_id,
+                )
                 cur.execute(sql, params)
+                logger.info("write_feedback: SQL execute completed.")
         logger.info(
-            "Wrote user feedback %s for intake %s to Lakebase.",
+            "write_feedback: commit completed; wrote feedback_id=%s for "
+            "intake_id=%s.",
             feedback_id,
             intake_id,
         )
         return feedback_id
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "Failed to write user feedback to Lakebase: %s: %s",
+            "write_feedback: failed: %s: %s",
             type(exc).__name__,
             exc,
         )
         return None
     finally:
         conn.close()
+        logger.info("write_feedback: connection closed.")
