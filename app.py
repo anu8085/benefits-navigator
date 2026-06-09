@@ -4,6 +4,9 @@ Benefits Navigator for Families - NJ MVP
 Streamlit UI with agentic reasoning flow
 """
 
+import logging
+import os
+
 import streamlit as st
 from agent import (
     extract_profile_from_text,
@@ -30,6 +33,13 @@ from lakebase_client import (
     write_action_plan,
     write_user_feedback,
 )
+
+# Local SQLite fallback: used ONLY when a Lakebase write fails (e.g. local
+# laptop testing or a deleted Lakebase project). Lakebase stays the primary
+# store. Standard-library sqlite3 only - no new dependency, no secrets stored.
+import local_state_client as local_state
+
+logger = logging.getLogger(__name__)
 
 
 # ── Trusted benefits data loading ─────────────────────────────────────────────
@@ -301,6 +311,8 @@ for key in [
     "raw_user_text",
     "intake_id",
     "lakebase_save_ok",
+    "state_storage_mode",
+    "feedback_saved_where",
     "feedback_submitted",
 ]:
     if key not in st.session_state:
@@ -390,16 +402,13 @@ elif st.session_state.stage == "clarify":
 
             st.session_state.action_plan = plan
 
-            # ── Lakebase write-back (transactional app-state) ──────────────────
-            # After the plan is generated, persist the live app state to
-            # Lakebase. Writes are best-effort: the lakebase_client functions
-            # already swallow errors and return None/False, and we additionally
-            # guard with try/except so a write-back problem can never crash the
-            # app or interrupt the user's flow. The intake event is the root
-            # record; matches and the action plan are only written if it
-            # succeeds, and all three are tied together by intake_id.
-            save_ok = False
+            # ── App-state write-back: Lakebase first, SQLite fallback ──────────
+            # Lakebase stays the PRIMARY transactional store (unchanged). Only if
+            # a Lakebase write fails do we persist the SAME state into a local
+            # SQLite database so a demo journey is never lost. The plan is never
+            # blocked on persistence; all writers degrade quietly.
             intake_id = None
+            storage_mode = "none"
             try:
                 intake_id = write_family_intake_event(
                     updated_profile, st.session_state.raw_user_text or ""
@@ -407,14 +416,44 @@ elif st.session_state.stage == "clarify":
                 if intake_id:
                     matches_ok = write_program_matches(intake_id, eligible)
                     plan_id = write_action_plan(intake_id, plan, MODEL)
-                    save_ok = bool(matches_ok and plan_id)
+                    if matches_ok and plan_id:
+                        storage_mode = "lakebase"
             except Exception:
                 # Never surface internals (or secrets) to the UI; degrade quietly.
-                save_ok = False
+                intake_id = None
 
-            # Store intake_id so the feedback form can reference the same record.
+            if storage_mode != "lakebase":
+                # Lakebase unavailable or partial failure -> local SQLite fallback.
+                logger.warning(
+                    "Lakebase app-state write unavailable; using local SQLite "
+                    "fallback."
+                )
+                try:
+                    local_intake_id = local_state.write_family_intake_event(
+                        updated_profile, st.session_state.raw_user_text or ""
+                    )
+                    if local_intake_id:
+                        local_state.write_program_matches(local_intake_id, eligible)
+                        local_state.write_action_plan(local_intake_id, plan, MODEL)
+                        intake_id = local_intake_id
+                        storage_mode = "sqlite_fallback"
+                        logger.info("App-state saved via local SQLite fallback.")
+                    else:
+                        storage_mode = "none"
+                except Exception:
+                    storage_mode = "none"
+
+                if storage_mode == "none":
+                    logger.error(
+                        "App-state saving failed in BOTH Lakebase and local "
+                        "SQLite fallback."
+                    )
+
+            # Store intake_id (Lakebase or SQLite) so feedback reuses the same id.
             st.session_state.intake_id = intake_id
-            st.session_state.lakebase_save_ok = save_ok
+            st.session_state.state_storage_mode = storage_mode
+            # Backward-compatible flag retained for any existing references.
+            st.session_state.lakebase_save_ok = (storage_mode == "lakebase")
 
             st.session_state.stage = "results"
             st.rerun()
@@ -432,10 +471,18 @@ elif st.session_state.stage == "results":
         unsafe_allow_html=True,
     )
 
-    # If saving the live app state to Lakebase failed, let the user know without
-    # implying their plan is invalid - the plan above is still fully usable.
-    if st.session_state.lakebase_save_ok is False:
-        st.warning("Plan generated successfully, but saving app state failed.")
+    # Tell the user where the app state was saved, without implying their plan is
+    # invalid - the plan above is always fully usable.
+    _mode = st.session_state.state_storage_mode
+    if _mode == "lakebase":
+        st.success("Plan saved to Lakebase app-state tables.")
+    elif _mode == "sqlite_fallback":
+        st.info(
+            "Plan generated successfully. Lakebase is unavailable, so this "
+            "session was saved locally in SQLite for demo fallback."
+        )
+    elif _mode == "none":
+        st.warning("Plan generated successfully, but app-state saving failed.")
 
     st.markdown("---")
 
@@ -477,7 +524,13 @@ elif st.session_state.stage == "results":
     # Lakebase against the same intake_id captured above.
     st.markdown("### 💬 Was this helpful?")
     if st.session_state.feedback_submitted:
-        st.success("Thanks for your feedback!")
+        if st.session_state.feedback_saved_where == "sqlite_fallback":
+            st.success(
+                "Thanks for your feedback! Saved locally in SQLite for demo "
+                "fallback."
+            )
+        else:
+            st.success("Thanks for your feedback! Saved to Lakebase.")
     else:
         rating = st.slider(
             "Rate your plan (1 = not helpful, 5 = very helpful)",
@@ -492,17 +545,39 @@ elif st.session_state.stage == "results":
         )
         if st.button("Submit Feedback"):
             feedback_id = None
-            try:
-                feedback_id = write_user_feedback(
-                    st.session_state.intake_id, rating, comment
-                )
-            except Exception:
-                feedback_id = None
+            saved_where = None
+            _mode = st.session_state.state_storage_mode
+
+            # If the session was saved to Lakebase, try Lakebase feedback first,
+            # then fall back to SQLite. If the session was already a SQLite
+            # fallback, write feedback to SQLite directly. Otherwise try both.
+            if _mode != "sqlite_fallback":
+                try:
+                    feedback_id = write_user_feedback(
+                        st.session_state.intake_id, rating, comment
+                    )
+                except Exception:
+                    feedback_id = None
+                if feedback_id:
+                    saved_where = "lakebase"
+
+            if not feedback_id:
+                try:
+                    feedback_id = local_state.write_user_feedback(
+                        st.session_state.intake_id, rating, comment
+                    )
+                except Exception:
+                    feedback_id = None
+                if feedback_id:
+                    saved_where = "sqlite_fallback"
+                    logger.info("Feedback saved via local SQLite fallback.")
 
             if feedback_id:
+                st.session_state.feedback_saved_where = saved_where
                 st.session_state.feedback_submitted = True
                 st.rerun()
             else:
+                logger.error("Feedback save failed in both Lakebase and SQLite.")
                 st.warning("Feedback could not be saved right now.")
 
     st.markdown("---")
@@ -518,6 +593,8 @@ elif st.session_state.stage == "results":
             "raw_user_text",
             "intake_id",
             "lakebase_save_ok",
+            "state_storage_mode",
+            "feedback_saved_where",
             "feedback_submitted",
         ]:
             st.session_state[key] = None
@@ -525,6 +602,13 @@ elif st.session_state.stage == "results":
         for wkey in ["intake_text", "fb_rating", "fb_comment"]:
             st.session_state.pop(wkey, None)
         st.rerun()
+
+    # Optional debug view of the local SQLite fallback (off by default so the
+    # deployed app stays clean). Enable with SHOW_LOCAL_STATE_DEBUG=true.
+    if os.environ.get("SHOW_LOCAL_STATE_DEBUG", "").lower() == "true":
+        with st.expander("Local SQLite fallback state counts"):
+            st.write("Database path:", local_state.get_db_path())
+            st.write(local_state.get_local_state_counts())
 
     st.markdown(
         '<div class="disclaimer">⚠️ This tool provides general information only and does not constitute legal or financial advice. '
